@@ -1,4 +1,11 @@
+using Microsoft.AspNetCore.Mvc;
+using SignalRApp.ApiService;
+
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSignalR();
+
+builder.Services.AddHostedService<MessageProcessor>();
 
 // Add service defaults & Aspire client integrations.
 builder.AddServiceDefaults();
@@ -27,7 +34,23 @@ app.MapGet("/weatherforecast", () =>
 })
 .WithName("GetWeatherForecast");
 
+app.MapPost("notifications/all", async ([FromQuery]string content,IHubContext<NotificationsHub, INotificationsClient> context) =>
+{
+    await context.Clients.All.ReceiveNotification(content);
+
+    return Results.NoContent();
+});
+
+app.MapPost("notifications/user", async (string userId,string content,IHubContext<NotificationsHub, INotificationsClient> context) =>
+{
+    await context.Clients.User(userId).ReceiveNotification(content);
+
+    return Results.NoContent();
+});
+
 app.MapDefaultEndpoints();
+
+app.MapHub<NotificationsHub>("notifications-hub");
 
 app.Run();
 
