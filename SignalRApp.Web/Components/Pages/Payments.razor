@@ -1,0 +1,145 @@
+@page "/payments"
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.SignalR.Client
+@using SignalRApp.Web.Models.Payments
+@implements IAsyncDisposable
+
+<PageTitle>Payments</PageTitle>
+
+<h2>Payment Status Demo</h2>
+
+<p><strong>Hub Status:</strong> @(isPaymentHubConnected ? "Connected" : "Disconnected")</p>
+
+<div class="mb-3 d-flex gap-2">
+    <button class="btn btn-primary" @onclick="CreatePaymentAsync">Create Payment</button>
+    <button class="btn btn-success" @onclick="SimulateWebhookSuccessAsync" disabled="@string.IsNullOrWhiteSpace(paymentRequestId)">
+        Simulate Success Webhook
+    </button>
+    <button class="btn btn-danger" @onclick="SimulateWebhookFailAsync" disabled="@string.IsNullOrWhiteSpace(paymentRequestId)">
+        Simulate Fail Webhook
+    </button>
+</div>
+
+<div>
+    <p><strong>PaymentRequestId:</strong> @(string.IsNullOrWhiteSpace(paymentRequestId) ? "-" : paymentRequestId)</p>
+    <p><strong>Status:</strong> @status</p>
+    <p><strong>Message:</strong> @message</p>
+</div>
+
+@code {
+    [Inject] private IConfiguration Configuration { get; set; } = default!;
+    [Inject] private IHttpClientFactory HttpClientFactory { get; set; } = default!;
+
+    private HubConnection? _paymentHubConnection;
+    private string? apiServiceUrl;
+
+    private string paymentRequestId = string.Empty;
+    private string status = "Not started";
+    private string message = string.Empty;
+    private bool isPaymentHubConnected;
+
+    protected override async Task OnInitializedAsync()
+    {
+        apiServiceUrl = Configuration["services:apiservice:https:0"]
+            ?? Configuration["services:apiservice:http:0"];
+
+        if (string.IsNullOrWhiteSpace(apiServiceUrl))
+        {
+            message = "ApiService endpoint not found.";
+            return;
+        }
+
+        _paymentHubConnection = new HubConnectionBuilder()
+            .WithUrl(new Uri($"{apiServiceUrl.TrimEnd('/')}/hubs/payment-status"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        _paymentHubConnection.On<PaymentStatusUpdatedPayload>("PaymentStatusUpdated", payload =>
+        {
+            if (!string.Equals(payload.PaymentRequestId, paymentRequestId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            status = payload.Status;
+            message = payload.Message ?? string.Empty;
+            InvokeAsync(StateHasChanged);
+        });
+
+        await _paymentHubConnection.StartAsync();
+        isPaymentHubConnected = true;
+    }
+
+    private async Task CreatePaymentAsync()
+    {
+        if (string.IsNullOrWhiteSpace(apiServiceUrl))
+        {
+            message = "ApiService endpoint not found.";
+            return;
+        }
+
+        using var httpClient = HttpClientFactory.CreateClient();
+
+        var response = await httpClient.PostAsJsonAsync(
+            $"{apiServiceUrl.TrimEnd('/')}/api/payment",
+            new CreatePaymentRequest { Amount = 100, Currency = "USD" });
+
+        response.EnsureSuccessStatusCode();
+
+        var data = await response.Content.ReadFromJsonAsync<CreatePaymentResponse>();
+        if (data is null)
+        {
+            message = "Failed to parse create payment response.";
+            return;
+        }
+
+        paymentRequestId = data.PaymentRequestId;
+        status = data.Status;
+        message = "Waiting for webhook...";
+
+        if (_paymentHubConnection is not null && _paymentHubConnection.State == HubConnectionState.Connected)
+        {
+            await _paymentHubConnection.InvokeAsync("SubscribeToPayment", paymentRequestId);
+        }
+    }
+
+    private Task SimulateWebhookSuccessAsync() => SimulateWebhookAsync(true);
+
+    private Task SimulateWebhookFailAsync() => SimulateWebhookAsync(false);
+
+    private async Task SimulateWebhookAsync(bool success)
+    {
+        if (string.IsNullOrWhiteSpace(apiServiceUrl) || string.IsNullOrWhiteSpace(paymentRequestId))
+        {
+            return;
+        }
+
+        using var httpClient = HttpClientFactory.CreateClient();
+
+        var response = await httpClient.PostAsJsonAsync(
+            $"{apiServiceUrl.TrimEnd('/')}/api/payment/webhook",
+            new PaymentWebhookRequest
+            {
+                PaymentRequestId = paymentRequestId,
+                Success = success
+            });
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_paymentHubConnection is null)
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(paymentRequestId) && _paymentHubConnection.State == HubConnectionState.Connected)
+        {
+            await _paymentHubConnection.InvokeAsync("UnsubscribeFromPayment", paymentRequestId);
+        }
+
+        await _paymentHubConnection.DisposeAsync();
+    }
+
+}

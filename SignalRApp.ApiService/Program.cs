@@ -1,11 +1,16 @@
-using Microsoft.AspNetCore.Mvc;
 using SignalRApp.ApiService;
+using SignalRApp.ApiService.NotificationHub;
+using SignalRApp.ApiService.PaymentHub;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddSignalR();
+builder.Services.AddControllers();
+builder.Services.AddSingleton<IPaymentStore, InMemoryPaymentStore>();
+builder.Services.AddScoped<IPaymentStatusNotifier, PaymentStatusNotifier>();
 
-builder.Services.AddHostedService<MessageProcessor>();
+
+builder.Services.AddHostedService<MessageProcessorJob>();
 
 // Add service defaults & Aspire client integrations.
 builder.AddServiceDefaults();
@@ -18,43 +23,11 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 app.UseExceptionHandler();
 
-string[] summaries = ["Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"];
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast = Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
-
-app.MapPost("notifications/all", async ([FromQuery]string content,IHubContext<NotificationsHub, INotificationsClient> context) =>
-{
-    await context.Clients.All.ReceiveNotification(content);
-
-    return Results.NoContent();
-});
-
-app.MapPost("notifications/user", async (string userId,string content,IHubContext<NotificationsHub, INotificationsClient> context) =>
-{
-    await context.Clients.User(userId).ReceiveNotification(content);
-
-    return Results.NoContent();
-});
+app.MapControllers();
 
 app.MapDefaultEndpoints();
 
 app.MapHub<NotificationsHub>("notifications-hub");
+app.MapHub<PaymentStatusHub>("/hubs/payment-status");
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}

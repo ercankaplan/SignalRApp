@@ -1,7 +1,7 @@
 ﻿
 using Microsoft.AspNetCore.SignalR;
 
-namespace SignalRApp.ApiService
+namespace SignalRApp.ApiService.NotificationHub
 {
 
     /// <summary>

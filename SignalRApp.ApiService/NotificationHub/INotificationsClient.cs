@@ -1,4 +1,4 @@
-﻿namespace SignalRApp.ApiService
+﻿namespace SignalRApp.ApiService.NotificationHub
 {
     public interface INotificationsClient
     {

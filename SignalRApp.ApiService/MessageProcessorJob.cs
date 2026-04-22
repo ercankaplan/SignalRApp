@@ -1,7 +1,9 @@
 ﻿
+using SignalRApp.ApiService.NotificationHub;
+
 namespace SignalRApp.ApiService
 {
-    public class MessageProcessor(ILogger<MessageProcessor> _logger, IHubContext<NotificationsHub, INotificationsClient> context) : BackgroundService
+    public class MessageProcessorJob(ILogger<MessageProcessorJob> _logger, IHubContext<NotificationsHub, INotificationsClient> context) : BackgroundService
     {
 
         private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
